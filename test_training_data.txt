@@ -1,0 +1,25 @@
+Hello world! This is a BPE trainer.<|endoftext|>
+It supports byte-level encoding and special tokens.<|endoftext|>
+The quick brown fox jumps over the lazy dog.<|endoftext|>
+Testing, testing, 1, 2, 3!<|endoftext|>
+Hello again! Repeated words help BPE learn better patterns.<|endoftext|>
+Hello world! This is a BPE trainer.<|endoftext|>
+It supports byte-level encoding and special tokens.<|endoftext|>
+The quick brown fox jumps over the lazy dog.<|endoftext|>
+Testing, testing, 1, 2, 3!<|endoftext|>
+Hello again! Repeated words help BPE learn better patterns.<|endoftext|>
+Hello world! This is a BPE trainer.<|endoftext|>
+It supports byte-level encoding and special tokens.<|endoftext|>
+The quick brown fox jumps over the lazy dog.<|endoftext|>
+Testing, testing, 1, 2, 3!<|endoftext|>
+Hello again! Repeated words help BPE learn better patterns.<|endoftext|>
+Hello world! This is a BPE trainer.<|endoftext|>
+It supports byte-level encoding and special tokens.<|endoftext|>
+The quick brown fox jumps over the lazy dog.<|endoftext|>
+Testing, testing, 1, 2, 3!<|endoftext|>
+Hello again! Repeated words help BPE learn better patterns.<|endoftext|>
+Hello world! This is a BPE trainer.<|endoftext|>
+It supports byte-level encoding and special tokens.<|endoftext|>
+The quick brown fox jumps over the lazy dog.<|endoftext|>
+Testing, testing, 1, 2, 3!<|endoftext|>
+Hello again! Repeated words help BPE learn better patterns.<|endoftext|>
