@@ -2,7 +2,7 @@
 Test script for byte-level BPE with special tokens
 """
 
-from trainer import adapters, ByteLevelBPETrainer
+from yet_another_bpe.trainer import adapters, ByteLevelBPETrainer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table

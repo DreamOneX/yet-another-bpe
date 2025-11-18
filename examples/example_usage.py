@@ -2,7 +2,7 @@
 Example usage of the adapters function for training byte-level BPE
 """
 
-from trainer import adapters
+from yet_another_bpe.trainer import adapters
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
