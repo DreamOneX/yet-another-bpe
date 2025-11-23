@@ -16,45 +16,29 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # Virtual environments
 venv/
 env/
 ENV/
-env.bak/
-venv.bak/
-.venv/
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
-.nox/
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Project specific
+output/
+*.json
 training_corpus.txt
 test_training_data.txt
-*.txt
-!requirements*.txt
-
-# uv
-.uv/
-uv.lock
