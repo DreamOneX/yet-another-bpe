@@ -1,0 +1,25 @@
+Here is a stylized example from Sennrich et al. [2016]. Consider a corpus consisting of the following text
+
+low low low low low
+lower lower widest widest widest
+newest newest newest newest newest newest
+and the vocabulary has a special token <|endoftext|>.
+
+Vocabulary  
+We initialize our vocabulary with our special token <|endoftext|> and the 256 byte values.
+
+Pre-tokenization
+For simplicity and to focus on the merge procedure, we assume in this example that pretokenization simply splits on whitespace. When we pretokenize and count, we end up with the frequency table.
+{low: 5, lower: 2, widest: 3, newest: 6}
+
+It is convenient to represent this as a dict[tuple[bytes], int], e.g. {(l,o,w): 5 …}. Note that even a single byte is a bytes object in Python. There is no byte type in Python to represent a single byte, just as there is no char type in Python to represent a single character.
+
+---
+
+Merges We first look at every successive pair of bytes and sum the frequency of the words where they appear {lo: 7, ow: 7, we: 8, er: 2, wi: 3, id: 3, de: 3, es: 9, st: 9, ne: 6, ew: 6}. The pair ('es') and ('st') are tied, so we take the lexicographically greater pair, ('st'). We would then merge the pre-tokens so that we end up with {(l,o,w): 5, (l,o,w,e,r): 2, (w,i,d,e,st): 3, (n,e,w,e,st): 6}. 
+
+In the second round, we see that (e, st) is the most common pair (with a count of 9) and we would merge into {(l,o,w): 5, (l,o,w,e,r): 2, (w,i,d,est): 3, (n,e,w,est): 6}. Continuing this, the sequence of merges we get in the end will be ['s t', 'e st', 'o w', 'l ow', 'w est', 'n e', 'ne west', 'w i', 'wi d', 'wid est', 'low e', 'lowe r']. 
+
+If we take 6 merges, we have ['s t', 'e st', 'o w', 'l ow', 'w est', 'n e'] and our vocabulary elements would be [<|endoftext|>, [...256 BYTE CHARS], st, est, ow, low, west, ne]. 
+
+With this vocabulary and set of merges, the word newest would tokenize as [ne, west].
