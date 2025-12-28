@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-yet-another-bpe = "yet_another_bpe.__main__:main"
+train-tiny-stories = "yet_another_bpe.scripts.train_bpe:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/yet_another_bpe"]
@@ -37,3 +37,8 @@ packages = ["src/yet_another_bpe"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+]

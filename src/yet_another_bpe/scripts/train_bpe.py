@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from yet_another_bpe.bbpe import BBPETrainer, BBPETrainerConfig
+from yet_another_bpe.trainer import BBPETrainer, BBPETrainerConfig
 
 from rich.console import Console
 from rich.panel import Panel
