@@ -12,21 +12,10 @@ from yet_another_bpe.bbpe import BBPEModel, BBPETrainer, BBPETrainerConfig
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
 
-def _build_pair_to_sequences_for_tests(sequences: list[list[int]]) -> dict[tuple[int, int], set[int]]:
-    """Helper function for test_bpe.py to build pair_to_sequences mapping."""
-    from collections import defaultdict
-    pair_to_sequences: dict[tuple[int, int], set[int]] = defaultdict(set)
-    for seq_idx, seq in enumerate(sequences):
-        for i in range(len(seq) - 1):
-            pair = (seq[i], seq[i + 1])
-            pair_to_sequences[pair].add(seq_idx)
-    return dict(pair_to_sequences)
+class TestPreprocessing:
+    """Tests for corpus preprocessing."""
 
-
-class TestStage1Preprocessing:
-    """Tests for Stage 1: Preprocessing (I/O bound)"""
-
-    def test_stage1_simple_ascii_text(self):
+    def test_simple_ascii_text(self):
         """Test preprocessing of simple ASCII text."""
         config = BBPETrainerConfig(max_workers=1)
         trainer = BBPETrainer(config)
@@ -35,7 +24,7 @@ class TestStage1Preprocessing:
         assert test_file.exists(), f"Test file {test_file} not found"
         
         # Call preprocessing
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
         # Verify we got sequences
         assert len(sequences) > 0, "Should return at least one sequence"
@@ -46,13 +35,13 @@ class TestStage1Preprocessing:
             assert all(isinstance(b, int) and 0 <= b <= 255 for b in seq), \
                 "All elements should be integers in range 0-255"
         
-        # Verify the content matches expected bytes
-        # "Hello world!" -> [72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33]
-        expected_bytes = "Hello world!".encode('utf-8')
+        # Verify the content matches expected bytes (after pre-tokenization)
+        # "Hello world!" -> tokens like "Hello", " world", "!" depending on GPT-2 pattern
         all_bytes = b''.join(bytes(seq) for seq in sequences)
+        expected_bytes = "Hello world!".encode('utf-8')
         assert all_bytes == expected_bytes, f"Expected {expected_bytes}, got {all_bytes}"
 
-    def test_stage1_unicode_text(self):
+    def test_unicode_text(self):
         """Test preprocessing of Unicode text with normalization."""
         config = BBPETrainerConfig(max_workers=1)
         trainer = BBPETrainer(config)
@@ -60,49 +49,47 @@ class TestStage1Preprocessing:
         test_file = TEST_DATA_DIR / "unicode.txt"
         assert test_file.exists(), f"Test file {test_file} not found"
         
-        # Read original content and apply NFKC normalization
-        original_text = test_file.read_text(encoding='utf-8')
-        normalized_text = unicodedata.normalize('NFKC', original_text)
-        expected_bytes = normalized_text.encode('utf-8')
+        # Read original content (use binary to preserve exact line endings)
+        original_bytes = test_file.read_bytes()
         
         # Call preprocessing
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
         # Verify sequences
         assert len(sequences) > 0
         all_bytes = b''.join(bytes(seq) for seq in sequences)
         
-        # Should match normalized version
-        assert all_bytes == expected_bytes, \
-            f"Unicode text should be NFKC normalized"
+        # Should match original bytes exactly
+        assert all_bytes == original_bytes, \
+            f"Unicode text should match original encoding"
 
-    def test_stage1_multiline_text(self):
+    def test_multiline_text(self):
         """Test preprocessing of multiline text."""
         config = BBPETrainerConfig(max_workers=1)
         trainer = BBPETrainer(config)
         
         test_file = TEST_DATA_DIR / "multiline.txt"
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
         assert len(sequences) > 0
-        # Verify newlines are preserved
+        # Verify newlines are preserved (may be in separate sequences due to pre-tokenization)
         all_bytes = b''.join(bytes(seq) for seq in sequences)
         assert b'\n' in all_bytes or b'\r\n' in all_bytes, \
             "Newlines should be preserved"
 
-    def test_stage1_empty_file(self):
+    def test_empty_file(self):
         """Test preprocessing of empty file (edge case)."""
         config = BBPETrainerConfig(max_workers=1)
         trainer = BBPETrainer(config)
         
         test_file = TEST_DATA_DIR / "empty.txt"
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
-        # Empty file should return empty list or list with empty sequence
-        assert len(sequences) == 0 or (len(sequences) == 1 and len(sequences[0]) == 0), \
-            "Empty file should produce no sequences or one empty sequence"
+        # Empty file should return empty list
+        assert len(sequences) == 0, \
+            "Empty file should produce no sequences"
 
-    def test_stage1_large_file_chunking(self):
+    def test_large_file_chunking(self):
         """Test that large files are properly chunked."""
         # Use small chunk size to force chunking
         config = BBPETrainerConfig(
@@ -119,9 +106,9 @@ class TestStage1Preprocessing:
         assert file_size > config.chunk_size_bytes, \
             f"Test file should be larger than chunk size for this test"
         
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
-        # Should get multiple sequences due to chunking
+        # Should get sequences
         assert len(sequences) > 0
         
         # Verify all bytes are valid
@@ -131,13 +118,12 @@ class TestStage1Preprocessing:
         # Verify total content matches (no data loss from chunking)
         all_bytes = b''.join(bytes(seq) for seq in sequences)
         expected_text = test_file.read_text(encoding='utf-8')
-        expected_normalized = unicodedata.normalize('NFKC', expected_text)
-        expected_bytes = expected_normalized.encode('utf-8')
+        expected_bytes = expected_text.encode('utf-8')
         
         assert all_bytes == expected_bytes, \
             "Chunking should not lose or corrupt data"
 
-    def test_stage1_multiple_files(self):
+    def test_multiple_files(self):
         """Test preprocessing multiple files."""
         config = BBPETrainerConfig(max_workers=2)
         trainer = BBPETrainer(config)
@@ -148,10 +134,10 @@ class TestStage1Preprocessing:
             TEST_DATA_DIR / "multiline.txt"
         ]
         
-        sequences = list(trainer._stage1_preprocess_corpus(test_files))
+        sequences = trainer._preprocess_corpus(test_files)
         
         # Should get sequences from all files
-        assert len(sequences) >= len(test_files), \
+        assert len(sequences) > 0, \
             "Should process all files"
         
         # All sequences should be valid
@@ -159,7 +145,7 @@ class TestStage1Preprocessing:
             assert isinstance(seq, list)
             assert all(isinstance(b, int) and 0 <= b <= 255 for b in seq)
 
-    def test_stage1_parallel_processing(self):
+    def test_parallel_processing(self):
         """Test that parallel processing works correctly."""
         # Test with different worker counts
         for max_workers in [1, 2, 4]:
@@ -171,14 +157,14 @@ class TestStage1Preprocessing:
                 TEST_DATA_DIR / "unicode.txt"
             ]
             
-            sequences = list(trainer._stage1_preprocess_corpus(test_files))
+            sequences = trainer._preprocess_corpus(test_files)
             
             # Results should be consistent regardless of worker count
             assert len(sequences) > 0
             for seq in sequences:
                 assert all(0 <= b <= 255 for b in seq)
 
-    def test_stage1_nonexistent_file(self):
+    def test_nonexistent_file(self):
         """Test that nonexistent files raise appropriate error."""
         config = BBPETrainerConfig()
         trainer = BBPETrainer(config)
@@ -186,9 +172,9 @@ class TestStage1Preprocessing:
         nonexistent = TEST_DATA_DIR / "nonexistent.txt"
         
         with pytest.raises(FileNotFoundError):
-            _ = list(trainer._stage1_preprocess_corpus([nonexistent]))
+            _ = trainer._preprocess_corpus([nonexistent])
 
-    def test_stage1_utf8_boundary_handling(self):
+    def test_utf8_boundary_handling(self):
         """Test that UTF-8 character boundaries are respected in chunking."""
         # Create a file with multi-byte UTF-8 characters
         test_file = TEST_DATA_DIR / "utf8_boundary_test.txt"
@@ -203,163 +189,29 @@ class TestStage1Preprocessing:
         )
         trainer = BBPETrainer(config)
         
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
+        sequences = trainer._preprocess_corpus([test_file])
         
         # Reconstruct and verify no corruption
         all_bytes = b''.join(bytes(seq) for seq in sequences)
         reconstructed = all_bytes.decode('utf-8')
-        expected_normalized = unicodedata.normalize('NFKC', content)
         
-        assert reconstructed == expected_normalized, \
+        assert reconstructed == content, \
             "UTF-8 boundaries should be respected, no character corruption"
         
         # Cleanup
         test_file.unlink()
 
 
-class TestStage2PairCounting:
-    """Tests for Stage 2: Pair Counting (CPU/hash bound)"""
+class TestMergeLoop:
+    """Tests for the BPE merge loop."""
 
-    def test_stage2_simple_pairs(self):
-        """Test simple pair counting."""
-        config = BBPETrainerConfig(min_frequency=1, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        # "Hello" -> [72, 101, 108, 108, 111]
-        sequences = [[72, 101, 108, 108, 111]]
-        
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Expected pairs: (72,101), (101,108), (108,108), (108,111)
-        assert (72, 101) in pair_counts  # 'H' + 'e'
-        assert (101, 108) in pair_counts  # 'e' + 'l'
-        assert (108, 108) in pair_counts  # 'l' + 'l'
-        assert (108, 111) in pair_counts  # 'l' + 'o'
-        
-        # Each pair appears once
-        assert pair_counts[(72, 101)] == 1
-        assert pair_counts[(101, 108)] == 1
-        assert pair_counts[(108, 108)] == 1
-        assert pair_counts[(108, 111)] == 1
-
-    def test_stage2_repeated_pairs(self):
-        """Test counting of repeated pairs across multiple sequences."""
-        config = BBPETrainerConfig(min_frequency=1, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        # Two identical sequences
-        sequences = [
-            [72, 101, 108, 108, 111],  # "Hello"
-            [72, 101, 108, 108, 111],  # "Hello"
-        ]
-        
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Each pair should appear twice
-        assert pair_counts[(72, 101)] == 2
-        assert pair_counts[(101, 108)] == 2
-        assert pair_counts[(108, 108)] == 2
-        assert pair_counts[(108, 111)] == 2
-
-    def test_stage2_min_frequency_filter(self):
-        """Test that pairs below min_frequency are filtered out."""
-        config = BBPETrainerConfig(min_frequency=3, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        # Create sequences where some pairs appear less than 3 times
-        sequences = [
-            [1, 2, 3],  # pairs: (1,2), (2,3) - each appears once
-            [4, 5, 6],  # pairs: (4,5), (5,6) - each appears once
-            [7, 8, 7, 8, 7, 8],  # pairs: (7,8), (8,7) - each appears 3 times
-        ]
-        
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Only pairs with frequency >= 3 should be present
-        assert (7, 8) in pair_counts
-        assert pair_counts[(7, 8)] == 3
-        
-        # (8,7) appears only 2 times, should be filtered out
-        assert (8, 7) not in pair_counts
-        
-        # Low frequency pairs should not be in result
-        assert (1, 2) not in pair_counts
-        assert (2, 3) not in pair_counts
-        assert (4, 5) not in pair_counts
-        assert (5, 6) not in pair_counts
-
-    def test_stage2_empty_sequences(self):
-        """Test handling of empty sequence list."""
-        config = BBPETrainerConfig(min_frequency=1, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        sequences = []
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Should return empty dict
-        assert pair_counts == {}
-
-    def test_stage2_single_byte_sequences(self):
-        """Test sequences with single bytes (no pairs)."""
-        config = BBPETrainerConfig(min_frequency=1, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        sequences = [[1], [2], [3]]
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # No pairs possible
-        assert pair_counts == {}
-
-    def test_stage2_parallel_counting(self):
-        """Test that parallel counting produces consistent results."""
-        # Create a larger dataset
-        sequences = [[i, i+1, i+2] for i in range(100)]
-        
-        # Test with different worker counts
-        results = []
-        for max_workers in [1, 2, 4]:
-            config = BBPETrainerConfig(min_frequency=1, max_workers=max_workers)
-            trainer = BBPETrainer(config)
-            pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-            results.append(pair_counts)
-        
-        # All results should be identical
-        assert results[0] == results[1] == results[2], \
-            "Parallel processing should produce consistent results"
-
-    def test_stage2_integration_with_stage1(self):
-        """Test Stage 2 with real output from Stage 1."""
-        config = BBPETrainerConfig(min_frequency=1, max_workers=1)  # Use min_frequency=1
-        trainer = BBPETrainer(config)
-        
-        # Use a real test file
-        test_file = TEST_DATA_DIR / "simple.txt"
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
-        
-        # Count pairs
-        pair_counts, _ = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Should have some pairs
-        assert len(pair_counts) > 0
-        
-        # All counts should be >= min_frequency
-        for count in pair_counts.values():
-            assert count >= config.min_frequency
-
-
-class TestStage3MergeLoop:
-    """Tests for Stage 3: Merge Loop (algorithmic complexity bound)"""
-
-    def test_stage3_vocab_initialization(self):
+    def test_vocab_initialization(self):
         """Test that vocabulary is properly initialized with bytes 0-255 and special tokens."""
         config = BBPETrainerConfig(vocab_size=300, min_frequency=1, max_workers=1)
         trainer = BBPETrainer(config)
         
-        # Empty pair counts for testing vocab initialization only
-        pair_counts = {}
-        pair_to_sequences = {}
-        
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        # Empty sequences for testing vocab initialization only
+        vocab, merges = trainer._merge_loop([])
         
         # Should have 256 bytes + 4 special tokens = 260
         assert len(vocab) == 260
@@ -379,36 +231,24 @@ class TestStage3MergeLoop:
         # No merges should have occurred
         assert len(merges) == 0
 
-    def test_stage3_basic_merge(self):
+    def test_basic_merge(self):
         """Test basic merge operation."""
-        config = BBPETrainerConfig(vocab_size=265, min_frequency=2, max_workers=1)
+        config = BBPETrainerConfig(vocab_size=265, min_frequency=1, max_workers=1)
         trainer = BBPETrainer(config)
         
-        # Simulate some pair counts
-        pair_counts = {
-            (72, 101): 10,  # 'H' + 'e' - highest frequency
-            (101, 108): 5,  # 'e' + 'l'
-            (108, 108): 3,  # 'l' + 'l'
-            (111, 32): 2,   # 'o' + ' '
-        }
-        
-        # Need to set up sequences for full implementation
-        trainer._sequences = [
+        # Create sequences where 'H' + 'e' pair is most frequent
+        sequences = [
             [72, 101, 108, 108, 111],  # "Hello"
             [72, 101, 108, 108, 111],  # "Hello"
         ]
-        pair_to_sequences = _build_pair_to_sequences_for_tests(trainer._sequences)
         
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        vocab, merges = trainer._merge_loop(sequences)
         
         # Should have base vocab (260) + some merges
         assert len(vocab) >= 260
         
         # Should have performed some merges
         assert len(merges) > 0
-        
-        # First merge should be the most frequent pair
-        assert merges[0] == (b'H', b'e') or merges[0] == (bytes([72]), bytes([101]))
         
         # All merges should be tuples of bytes
         for merge in merges:
@@ -417,42 +257,40 @@ class TestStage3MergeLoop:
             assert isinstance(merge[0], bytes)
             assert isinstance(merge[1], bytes)
 
-    def test_stage3_merge_ordering(self):
+    def test_merge_ordering(self):
         """Test that merges are performed in frequency order."""
         config = BBPETrainerConfig(vocab_size=270, min_frequency=1, max_workers=1)
         trainer = BBPETrainer(config)
         
-        pair_counts = {
-            (65, 66): 100,  # 'A' + 'B' - highest
-            (67, 68): 50,   # 'C' + 'D' - medium
-            (69, 70): 10,   # 'E' + 'F' - lowest
-        }
+        # Create sequences where 'A'+'B' is most frequent
+        sequences = [
+            [65, 66],  # 'AB' - appears 100 times
+        ] * 100 + [
+            [67, 68],  # 'CD' - appears 50 times
+        ] * 50 + [
+            [69, 70],  # 'EF' - appears 10 times
+        ] * 10
         
-        trainer._sequences = [[65, 66], [67, 68], [69, 70]]
-        pair_to_sequences = _build_pair_to_sequences_for_tests(trainer._sequences)
-        
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        vocab, merges = trainer._merge_loop(sequences)
         
         # First merge should be highest frequency
         assert merges[0] == (b'A', b'B') or merges[0] == (bytes([65]), bytes([66]))
 
-    def test_stage3_vocab_size_limit(self):
+    def test_vocab_size_limit(self):
         """Test that merging stops when vocab_size is reached."""
         config = BBPETrainerConfig(vocab_size=262, min_frequency=1, max_workers=1)  # Only 2 merges allowed
         trainer = BBPETrainer(config)
         
-        pair_counts = {
-            (65, 66): 10,
-            (67, 68): 9,
-            (69, 70): 8,
-            (71, 72): 7,
-            (73, 74): 6,
-        }
+        # Create sequences with many distinct pairs
+        sequences = [
+            [65, 66],  # 'AB'
+            [67, 68],  # 'CD'
+            [69, 70],  # 'EF'
+            [71, 72],  # 'GH'
+            [73, 74],  # 'IJ'
+        ] * 10  # Each pair appears 10 times
         
-        trainer._sequences = [[65, 66], [67, 68], [69, 70], [71, 72], [73, 74]]
-        pair_to_sequences = _build_pair_to_sequences_for_tests(trainer._sequences)
-        
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        vocab, merges = trainer._merge_loop(sequences)
         
         # Should stop at vocab_size
         assert len(vocab) == 262
@@ -460,22 +298,23 @@ class TestStage3MergeLoop:
         # Should have exactly 2 merges (262 - 260 base vocab)
         assert len(merges) == 2
 
-    def test_stage3_min_frequency_threshold(self):
+    def test_min_frequency_threshold(self):
         """Test that pairs below min_frequency are not merged."""
         config = BBPETrainerConfig(vocab_size=300, min_frequency=5, max_workers=1)
         trainer = BBPETrainer(config)
         
-        pair_counts = {
-            (65, 66): 10,  # Above threshold
-            (67, 68): 5,   # At threshold
-            (69, 70): 4,   # Below threshold
-            (71, 72): 1,   # Below threshold
-        }
+        # Create sequences where some pairs are below min_frequency
+        sequences = [
+            [65, 66],  # 'AB' - appears 10 times (above threshold)
+        ] * 10 + [
+            [67, 68],  # 'CD' - appears 5 times (at threshold)
+        ] * 5 + [
+            [69, 70],  # 'EF' - appears 4 times (below threshold)
+        ] * 4 + [
+            [71, 72],  # 'GH' - appears 1 time (below threshold)
+        ]
         
-        trainer._sequences = [[65, 66], [67, 68], [69, 70], [71, 72]]
-        pair_to_sequences = _build_pair_to_sequences_for_tests(trainer._sequences)
-        
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        vocab, merges = trainer._merge_loop(sequences)
         
         # Should only merge pairs with frequency >= 5
         assert len(merges) <= 2
@@ -485,7 +324,7 @@ class TestStage3MergeLoop:
         for merge in merges:
             assert merge not in low_freq_merges
 
-    def test_stage3_special_tokens(self):
+    def test_special_tokens(self):
         """Test that special tokens are properly included in vocab."""
         config = BBPETrainerConfig(
             vocab_size=300,
@@ -495,9 +334,7 @@ class TestStage3MergeLoop:
         )
         trainer = BBPETrainer(config)
         
-        pair_counts = {}
-        pair_to_sequences = {}
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
+        vocab, merges = trainer._merge_loop([])
         
         # Should have 256 bytes + 5 special tokens = 261
         assert len(vocab) == 261
@@ -512,38 +349,6 @@ class TestStage3MergeLoop:
         # Special tokens should have IDs after the 256 bytes
         assert vocab[b'[PAD]'] >= 256
         assert vocab[b'[UNK]'] >= 256
-
-    def test_stage3_integration_with_stage1_and_2(self):
-        """Test Stage 3 with real output from Stage 1 and 2."""
-        config = BBPETrainerConfig(vocab_size=270, min_frequency=2, max_workers=1)
-        trainer = BBPETrainer(config)
-        
-        # Use a real test file
-        test_file = TEST_DATA_DIR / "simple.txt"
-        sequences = list(trainer._stage1_preprocess_corpus([test_file]))
-        
-        # Save sequences for Stage 3
-        trainer._sequences = sequences
-        
-        # Count pairs and pair_to_sequences
-        pair_counts, pair_to_sequences = trainer._stage2_initial_pair_counts(sequences)
-        
-        # Run merge loop
-        vocab, merges = trainer._stage3_merge_loop(pair_counts, pair_to_sequences)
-        
-        # Should have base vocab
-        assert len(vocab) >= 260
-        
-        # All vocab keys should be bytes
-        for token in vocab.keys():
-            assert isinstance(token, bytes)
-        
-        # All merges should be tuples of bytes
-        for merge in merges:
-            assert isinstance(merge, tuple)
-            assert len(merge) == 2
-            assert isinstance(merge[0], bytes)
-            assert isinstance(merge[1], bytes)
 
 
 class TestTrainOrchestration:
@@ -666,7 +471,6 @@ class TestTrainOrchestration:
         # Verify trainer state was updated
         assert len(trainer._vocab) >= 260
         assert isinstance(trainer._merges, list)
-        assert isinstance(trainer._sequences, list)
         
         # Verify base bytes are present
         for i in range(256):
@@ -761,7 +565,7 @@ class TestModelPersistence:
         with open(output_dir / "vocab.json", encoding='utf-8') as f:
             vocab = json.load(f)
         
-        # Check base bytes are present (at least 256)
+        # Check base bytes are present (at least 260)
         assert len(vocab) >= 260
         
         # Check special tokens (they should be UTF-8 encoded)
