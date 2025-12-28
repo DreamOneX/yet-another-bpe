@@ -39,6 +39,8 @@ htmlcov/
 
 # Project specific
 output/
+models/
+artifacts/
 *.json
 training_corpus.txt
 test_training_data.txt
