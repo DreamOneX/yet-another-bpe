@@ -6,7 +6,7 @@ for training tokenizers on large text corpora.
 
 import json
 import mmap
-import regex as re
+import regex
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -111,6 +111,11 @@ class BBPETrainer:
             for token1, token2 in self._merges:
                 _ = f.write(f"{token1.decode('latin-1')} {token2.decode('latin-1')}\n")
 
+        # Save special tokens
+        special_tokens_file = output_path / "special_tokens.json"
+        with open(special_tokens_file, 'w', encoding='utf-8') as f:
+            json.dump(list(self.config.special_tokens), f, ensure_ascii=False, indent=2)
+
     def _init_base_vocab(self) -> dict[bytes, int]:
         """Initialize vocabulary with 256 bytes + special tokens."""
         vocab: dict[bytes, int] = {}
@@ -158,10 +163,10 @@ class BBPETrainer:
             GPT2_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
             pattern = GPT2_PAT
             if self.config.special_tokens:
-                escaped = [re.escape(t) for t in self.config.special_tokens]
+                escaped = [regex.escape(t) for t in self.config.special_tokens]
                 pattern = f"{'|'.join(escaped)}|{pattern}"
 
-            pretokens: list[str] = re.findall(pattern, text)
+            pretokens: list[str] = regex.findall(pattern, text)
             return [list(t.encode('utf-8')) for t in pretokens if t]
 
         def get_chunks(file_path: Path) -> list[tuple[int, int]]:
@@ -171,7 +176,7 @@ class BBPETrainer:
             if file_size <= self.config.chunk_size_bytes:
                 return [(0, file_size)]
 
-            chunks = []
+            chunks: list[tuple[int, int]] = []
             start = 0
             with open(file_path, 'rb') as f:
                 with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
