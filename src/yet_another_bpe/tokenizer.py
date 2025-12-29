@@ -181,14 +181,12 @@ class BBPETokenizer:
                         token_ids.append(vocab[token_bytes])
                 else:
                     # Regular text - apply GPT-2 pre-tokenization
-                    pretokens: list[str] = self._pattern.findall(part)
-                    for pretoken in pretokens:
+                    for pretoken in cast(list[str], self._pattern.findall(part)):
                         ids = self._encode_word_cached(pretoken)
                         token_ids.extend(ids)
         else:
             # No special tokens - just apply GPT-2 pre-tokenization
-            pretokens: list[str] = self._pattern.findall(text)
-            for pretoken in pretokens:
+            for pretoken in cast(list[str], self._pattern.findall(text)):
                 ids = self._encode_word_cached(pretoken)
                 token_ids.extend(ids)
 
