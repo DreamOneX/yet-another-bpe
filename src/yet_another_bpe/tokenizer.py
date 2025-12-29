@@ -66,7 +66,8 @@ class BBPETokenizer:
         self._special_tokens: list[str] = special_tokens or []
         self._special_tokens_set: frozenset[str] = frozenset(self._special_tokens)
         
-        # Type annotation for pattern (assigned in _compile_pattern)
+        # Type annotations for patterns (assigned in _compile_pattern)
+        self._special_pattern: regex.Pattern[str] | None
         self._pattern: regex.Pattern[str]
 
         # Build merge rank lookup for fast merging
@@ -85,12 +86,22 @@ class BBPETokenizer:
         )
 
     def _compile_pattern(self) -> None:
-        """Compile the pre-tokenization regex pattern."""
-        pattern = self._GPT2_PAT
+        r"""Compile the pre-tokenization regex patterns.
+        
+        Special tokens are handled separately to avoid conflicts with GPT-2
+        pattern's punctuation matching (` ?[^\s\p{L}\p{N}]+`).
+        """
+        # Compile GPT-2 pattern (always used for non-special text)
+        self._pattern = regex.compile(self._GPT2_PAT)
+        
+        # Compile separate pattern for special tokens (sorted by length, longest first)
         if self._special_tokens:
-            escaped = [regex.escape(t) for t in self._special_tokens]
-            pattern = f"{'|'.join(escaped)}|{pattern}"
-        self._pattern = regex.compile(pattern)
+            # Sort by length descending to match longer tokens first
+            sorted_tokens = sorted(self._special_tokens, key=len, reverse=True)
+            escaped = [regex.escape(t) for t in sorted_tokens]
+            self._special_pattern = regex.compile(f"({'|'.join(escaped)})")
+        else:
+            self._special_pattern = None
 
     @classmethod
     def from_file(cls, model_dir: str | Path) -> BBPETokenizer:
@@ -150,24 +161,36 @@ class BBPETokenizer:
         if not text:
             return []
 
-        # Pre-tokenize
-        pretokens: list[str] = self._pattern.findall(text)
-
         token_ids: list[int] = []
-        special_tokens_set = self._special_tokens_set
         vocab = self._vocab
+        special_tokens_set = self._special_tokens_set
         
-        for pretoken in pretokens:
-            # Check if it's a special token (use set for O(1) lookup)
-            if pretoken in special_tokens_set:
-                token_bytes = pretoken.encode("utf-8")
-                if token_bytes in vocab:
-                    token_ids.append(vocab[token_bytes])
-                continue
-
-            # Convert to bytes and apply BPE (cached)
-            ids = self._encode_word_cached(pretoken)
-            token_ids.extend(ids)
+        # If we have special tokens, split text by them first
+        if self._special_pattern is not None:
+            # Split text while keeping the special tokens as separate items
+            parts = self._special_pattern.split(text)
+            
+            for part in parts:
+                if not part:
+                    continue
+                    
+                if part in special_tokens_set:
+                    # This is a special token - encode directly
+                    token_bytes = part.encode("utf-8")
+                    if token_bytes in vocab:
+                        token_ids.append(vocab[token_bytes])
+                else:
+                    # Regular text - apply GPT-2 pre-tokenization
+                    pretokens: list[str] = self._pattern.findall(part)
+                    for pretoken in pretokens:
+                        ids = self._encode_word_cached(pretoken)
+                        token_ids.extend(ids)
+        else:
+            # No special tokens - just apply GPT-2 pre-tokenization
+            pretokens: list[str] = self._pattern.findall(text)
+            for pretoken in pretokens:
+                ids = self._encode_word_cached(pretoken)
+                token_ids.extend(ids)
 
         return token_ids
 
